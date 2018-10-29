@@ -18,7 +18,7 @@ if __name__ == "__main__":
     print("Löser dina korsordsbekymmer.\n@ är vokal, $ är konsonant, £ är vilken bokstav som helst.")
     word = input("Vilket ord ska lösas?\n")
     props = prop(word)
-    string = "Följande möjligheter finns:\n"
+    string = f"Följande {len(props)} möjligheter finns:\n"
     for p in props:
         string += p + ", "
-    print(string)
+    print(string[0:-2]) #remove last comma
