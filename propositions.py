@@ -64,3 +64,4 @@ if __name__ == "__main__":
         for sp in saol_props:
             sp_st += sp + ", "
         print(sp_st[0:-2]) #remove last comma
+        wd.close()
