@@ -3,6 +3,8 @@ import os
 import time
 from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, ElementNotVisibleException
 import re
+import sys
+import getopt
 
 class SAOLReader(webdriver.Chrome):
 
@@ -103,21 +105,38 @@ def prop(word):
             propositions = [former + letter for former in propositions]
     return propositions
 
-def instantiate_browser(headless=False):
-    return SAOLReader()
+def instantiate_browser(headless=True):
+    return SAOLReader(headless)
 
 if __name__ == "__main__":
-    print("Löser dina korsordsbekymmer.\n@ är vokal, $ är konsonant, £ är vilken bokstav som helst.")
-    word = input("Vilket ord ska lösas?\n")
+    headless = True
+    word = None
+    saol = False
+    for opt in sys.argv[1:]:
+        if opt == "-i":
+            headless = False
+        elif opt == "-s":
+            saol = True
+        elif opt[0] != "-":
+            word = opt
+    
+    if word == None:
+        print("Löser dina korsordsbekymmer.\n@ är vokal, $ är konsonant, £ är vilken bokstav som helst.")
+        word = input("Vilket ord ska lösas?\n")
+    else:
+        print(f"Löser dina korsordsbekymmer.\n{word}")
     props = prop(word)
     string = f"Följande {len(props)} möjligheter finns:\n"
     for p in props:
         string += p + ", "
     print(string[0:-2]) #remove last comma
 
-    do_check = input("Vill du kolla mot SAOL? [Y/n]\n")
+    if saol:
+        do_check = "Y"
+    else:
+        do_check = input("Vill du kolla mot SAOL? [Y/n]\n")
     if do_check != "n":
-        wd = instantiate_browser()
+        wd = instantiate_browser(headless=headless)
         saol_props = []
         for p in props:
             expls = wd.check(p)
