@@ -1,10 +1,7 @@
 from selenium import webdriver
 import os
-import time
-from selenium.common.exceptions import NoSuchElementException, StaleElementReferenceException, ElementNotVisibleException
-import re
+from selenium.common.exceptions import NoSuchElementException
 import sys
-import getopt
 
 class SAOLReader(webdriver.Chrome):
 
@@ -20,26 +17,18 @@ class SAOLReader(webdriver.Chrome):
         super().__init__(executable_path=dir_path+"/chromedriver", chrome_options=chromeOptions)
 
     def goto(self, word):
-        self.get("https://svenska.se/tre/?sok=" + word)
+        self.get("https://svenska.se/tri/f_saol.php?sok=" + word)
 
     def saol_text(self):
-        try:
-            return self._saol_element_text()
-        except NoSuchElementException:
-            time.sleep(1)
-            return self._saol_element_text()
-
-    def _saol_element_text(self):
-        return self.find_element_by_id("saol-1").find_element_by_class_name("cshow").text
+        return self.find_element_by_class_name("cshow").text
 
     def _saol_lexems(self):
-        return self.find_element_by_id("saol-1").find_elements_by_class_name("lexem")
+        return self.find_elements_by_class_name("lexem")
 
     def _saol_digs(self):
-        digs = self.find_element_by_id("saol-1").find_element_by_class_name("cshow").find_elements_by_class_name("dig")
+        digs = self.find_elements_by_tag_name("a")
         for i in range(len(digs)):
-            time.sleep(0.5)
-            not_stale_digs = self.find_element_by_id("saol-1").find_element_by_class_name("cshow").find_elements_by_class_name("dig")
+            not_stale_digs = self.find_elements_by_tag_name("a")
             yield not_stale_digs[i]
 
     def _do_lexems(self, lexems):
@@ -54,11 +43,11 @@ class SAOLReader(webdriver.Chrome):
         return all_lexems
 
     def _saol_dig_back(self):
-        try:
-            self.find_element_by_id("saol-1").find_element_by_class_name("pback").find_element_by_tag_name("a").click()
-        except NoSuchElementException:
-            time.sleep(0.5)
-            self.find_element_by_id("saol-1").find_element_by_class_name("pback").find_element_by_tag_name("a").click()
+        self.back()
+
+    def _click_dig(self, dig):
+        link = dig.get_attribute("onclick")[26:-2]
+        self.get("https://svenska.se" + link)
 
     def check(self, word):
         self.goto(word)
@@ -73,15 +62,8 @@ class SAOLReader(webdriver.Chrome):
             digs = self._saol_digs()
             lexems_1 = []
             for d in digs:
-                try:
-                    d.click()
-                except ElementNotVisibleException:
-                    continue
-                try:
-                    lexems = self._saol_lexems()
-                except NoSuchElementException:
-                    time.sleep(0.5)
-                    lexems = self._saol_lexems()
+                self._click_dig(d)
+                lexems = self._saol_lexems()
                 lexems_2 = self._do_lexems(lexems)
                 if lexems_1 != lexems_2:
                     defs.extend(lexems_2)
@@ -113,11 +95,12 @@ if __name__ == "__main__":
     word = None
     saol = False
     for opt in sys.argv[1:]:
-        if opt == "-i":
-            headless = False
-        elif opt == "-s":
-            saol = True
-        elif opt[0] != "-":
+        if opt[0] == "-":
+            if "i" in opt:
+                headless = False
+            if "s" in opt:
+                saol = True
+        else:
             word = opt
     
     if word == None:
@@ -138,11 +121,14 @@ if __name__ == "__main__":
     if do_check != "n":
         wd = instantiate_browser(headless=headless)
         saol_props = []
-        for p in props:
+        no = len(props)
+        for (i, p) in enumerate(props,1):
+            print(f"\r{str(i)} / {str(no)}: {p}", end="")
             expls = wd.check(p)
             if expls != False:
                 saol_props.append((p, expls))
         no_saol_props = len(saol_props)
+        print("\r" + (' ' * 100))
         if no_saol_props == 0:
             print("Inga möjligheter hittades.")
         else:
