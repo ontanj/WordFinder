@@ -153,6 +153,18 @@ def prop(word):
             propositions = [former + letter for former in propositions]
     return propositions
 
+def find_no_of_props(word):
+    all_matches = re.findall(r'[@£$]', word)
+    no = 1
+    for sign in all_matches:
+        if sign == "@":
+            no *= 9
+        elif sign == "£":
+            no *= 29
+        else:
+            no *= 20
+    return no
+
 if __name__ == "__main__":
     headless = True
     word = None
@@ -175,12 +187,18 @@ if __name__ == "__main__":
     else:
         print(f"Löser dina korsordsbekymmer.\n")
     if print_props:
-        props = prop(word)
-        string = f"Följande möjligheter finns:\n"
-        for p in props:
-            string += p + ", "
-        print(string[0:-2]) #remove last comma
-        print(f"\n{len(props)} stycken.\n")
+        no_props = find_no_of_props(word)
+        dont_print = "n"
+        if no_props >= 1000:
+            print(f'Det finns {no_props} möjligheter.\n')
+            dont_print = input("Vill du skippa att skriva ut dem? [Y/n]")
+        if dont_print == "n":
+            props = prop(word)
+            string = f"Följande möjligheter finns:\n"
+            for p in props:
+                string += p + ", "
+            print(string[0:-2]) #remove last comma
+            print(f"\n{len(props)} stycken.\n")
 
     if saol:
         do_check = "Y"
