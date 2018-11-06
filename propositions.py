@@ -3,6 +3,7 @@ import os
 from selenium.common.exceptions import NoSuchElementException
 import sys
 import re
+import operator
 
 class SAOLWordFinder(webdriver.Chrome):
 
@@ -14,6 +15,9 @@ class SAOLWordFinder(webdriver.Chrome):
         self.vocals = "aeiouyåäö"
         self.letters = "abcdefghijklmnopqrstuvwxyzåäö"
         self.compile_regex(pattern)
+        self.no_of_props = self.find_no_of_props(pattern)
+        self.verbose = verbose
+        self.get_wild_numbers()
         if headless:
             chromeOptions = webdriver.ChromeOptions()
             chromeOptions.add_argument("headless")
@@ -24,6 +28,18 @@ class SAOLWordFinder(webdriver.Chrome):
         dir_path = os.path.dirname(os.path.realpath(__file__))
         super().__init__(executable_path=dir_path+"/chromedriver", chrome_options=chromeOptions)
 
+    def find_no_of_props(self, pattern):
+        self.wild_sequence = re.findall(r'[@£$]', pattern)
+        no = 1
+        for sign in self.wild_sequence:
+            if sign == "@":
+                no *= 9
+            elif sign == "£":
+                no *= 29
+            else:
+                no *= 20
+        return no
+
     def goto(self, word):
         self.get("https://svenska.se/tri/f_saol.php?sok=" + word)
 
@@ -32,8 +48,8 @@ class SAOLWordFinder(webdriver.Chrome):
 
     def fit(self, lemma):
         all_forms = lemma.find_elements_by_class_name("bform")
-        if all_forms == []:
-            return None
+        # if all_forms == []:
+        #     return None
         for form in all_forms:
             form_text = form.text
             if self.regex_pattern.match(form_text) != None:
@@ -76,9 +92,11 @@ class SAOLWordFinder(webdriver.Chrome):
 
     def search(self):
         self.look_for(self.pattern)
+        if self.verbose:
+            print("\r                                 ")
 
     def compile_regex(self, pattern):
-        pattern = pattern.replace('@',f'[{self.vocals}]').replace('£',f'[{self.letters}]').replace('$',f'[{self.consonants}]')
+        pattern = pattern.replace('@',f'([{self.vocals}])').replace('£',f'([{self.letters}])').replace('$',f'([{self.consonants}])')
         pattern = "^" + pattern + "$"
         self.regex_pattern = re.compile(pattern)
 
@@ -86,22 +104,58 @@ class SAOLWordFinder(webdriver.Chrome):
         return pattern.replace('@','?').replace('£','?').replace('$','?')
 
     def new_search_array(self, pattern, last):
-        pos, letters_after = self.find_first(pattern, last)
-        n = [pattern[0:pos] + letter + pattern[pos+1:] for letter in letters_after]
-        return n
-
-    def find_first(self, pattern, last):
-        match = self.first_finder.search(pattern)
-        pos = len(match.group(1))
-        sign = match.group(2)
+        pos, sign = self.find_first(pattern, last)
+        letter = last[pos]
         if sign == "@":
             letters = self.vocals
         elif sign == "$":
             letters = self.consonants
         else:
             letters = self.letters
-        letters_after = letters[letters.index(last[pos]):]
-        return pos, letters_after
+        letters_after = letters[letters.index(letter):]
+        new_patterns = [pattern[0:pos] + letter + pattern[pos+1:] for letter in letters_after]
+        if letter == "a":
+            extra_patterns = self.new_search_array(new_patterns[0], last)
+            new_patterns = extra_patterns + new_patterns[1:]
+        return new_patterns
+
+    def find_first(self, pattern, last):
+        match = self.first_finder.search(pattern)
+        pos = len(match.group(1))
+        sign = match.group(2)
+        return pos, sign
+
+    def past_words(self, numbers):
+        no = 1
+        for n in numbers:
+            no *= n
+        return no
+
+    def get_wild_numbers(self):
+        wild_numbers = []
+        for sign in self.wild_sequence:
+            if sign == "@":
+                wild_numbers.append(9)
+            elif sign == "£":
+                wild_numbers.append(29)
+            else:
+                wild_numbers.append(20)
+        self.wild_numbers = wild_numbers
+
+    def calculate_progress(self, current):
+        if not self.verbose:
+            return
+        matches = self.regex_pattern.findall(current)
+        matches = matches[0]
+        progress = 0
+        for index in range(len(matches)):
+            if self.wild_sequence[index] == "@":
+                progress += self.vocals.find(matches[index]) * self.past_words(self.wild_numbers[index+1:])
+            elif self.wild_sequence[index] == "£":
+                progress += self.letters.find(matches[index]) * self.past_words(self.wild_numbers[index+1:])
+            else:
+                progress += self.consonants.find(matches[index]) * self.past_words(self.wild_numbers[index+1:])
+        print(f'\r{progress} / {self.no_of_props}', end="")
 
     def look_for(self, pattern):
         search_word = self.from_pattern(pattern)
@@ -112,6 +166,12 @@ class SAOLWordFinder(webdriver.Chrome):
         for prop in new_props:
             self.look_for(prop)
 
+    def add_words(self, words):
+        for word in words:
+            if word not in self.words:
+                self.calculate_progress(word[0])
+                self.words.append(word)
+
     def check(self, word):
         self.goto(word)
         text = self.saol_text()
@@ -119,7 +179,7 @@ class SAOLWordFinder(webdriver.Chrome):
             return True
         lemmas = self._saol_lemmas()
         if lemmas or lemmas == []:
-            self.words.extend(lemmas)
+            self.add_words(lemmas)
             return True
         else:
             digs = self._saol_digs()
@@ -128,7 +188,7 @@ class SAOLWordFinder(webdriver.Chrome):
                 self._click_dig(d)
                 lemmas_2 = self._saol_lemmas()
                 if lemmas_1 != lemmas_2:
-                    self.words.extend(lemmas_2)
+                    self.add_words(lemmas_2)
                 lemmas_1 = lemmas_2
                 self.back()
         if "..." in text and lemmas_2:
@@ -153,18 +213,6 @@ def prop(word):
             propositions = [former + letter for former in propositions]
     return propositions
 
-def find_no_of_props(word):
-    all_matches = re.findall(r'[@£$]', word)
-    no = 1
-    for sign in all_matches:
-        if sign == "@":
-            no *= 9
-        elif sign == "£":
-            no *= 29
-        else:
-            no *= 20
-    return no
-
 if __name__ == "__main__":
     headless = True
     word = None
@@ -186,11 +234,12 @@ if __name__ == "__main__":
         word = input("Vilket ord ska lösas?\n")
     else:
         print(f"Löser dina korsordsbekymmer.\n")
+        
+    wd = SAOLWordFinder(word, verbose=True, headless=True)
     if print_props:
-        no_props = find_no_of_props(word)
         dont_print = "n"
-        if no_props >= 1000:
-            print(f'Det finns {no_props} möjligheter.\n')
+        if wd.no_of_props >= 1000:
+            print(f'Det finns {wd.no_of_props} möjligheter.\n')
             dont_print = input("Vill du skippa att skriva ut dem? [Y/n]")
         if dont_print == "n":
             props = prop(word)
@@ -203,9 +252,8 @@ if __name__ == "__main__":
     if saol:
         do_check = "Y"
     else:
-        do_check = input("Vill du kolla mot SAOL? [Y/n]\n")
+        do_check = input("Vill du kolla mot SAOL? [Y/n]")
     if do_check != "n":
-        wd = SAOLWordFinder(word, verbose=True, headless=True)
         saol_props = wd.search()
         no_saol_props = len(wd.words)
         if no_saol_props == 0:
