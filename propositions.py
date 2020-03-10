@@ -1,14 +1,17 @@
-from selenium import webdriver
-import os
-from selenium.common.exceptions import NoSuchElementException
+# -*- coding: utf-8 -*-
+
 import sys
 import re
-import operator
+import urllib.request as urlr
+import urllib
+from html.parser import HTMLParser
 
-class SAOLWordFinder(webdriver.Chrome):
+class SAOLWordFinder:
 
-    def __init__(self, pattern, verbose=False, headless=True):
+    def __init__(self, pattern, verbose=False):
         self.first_finder = re.compile(r'^(\w*)([$|@|£])')
+        self.find_def = re.compile(r'class="def".*?>(.*?)(?:<span.*?>(.*?)</span>(.*?))?</span>', re.S)
+        self.find_links = re.compile(r"onclick=\"return loadDiv\('#saol-1','(/tri/f_saol\.php\?id=.*?)'\)\"><span class=\"dig\">(?: &nbsp|1)")
         self.pattern = pattern
         self.words = []
         self.consonants = "bcdfghjklmnpqrstvwxz"
@@ -18,15 +21,7 @@ class SAOLWordFinder(webdriver.Chrome):
         self.no_of_props = self.find_no_of_props(pattern)
         self.verbose = verbose
         self.get_wild_numbers()
-        if headless:
-            chromeOptions = webdriver.ChromeOptions()
-            chromeOptions.add_argument("headless")
-            prefs = {"profile.managed_default_content_settings.images":2}
-            chromeOptions.add_experimental_option("prefs",prefs)
-        else:
-            chromeOptions = None
-        dir_path = os.path.dirname(os.path.realpath(__file__))
-        super().__init__(executable_path=dir_path+"/chromedriver", chrome_options=chromeOptions)
+        self.find_grundform = re.compile(r'<span class="grundform">(.*?)</span>')
 
     def find_no_of_props(self, pattern):
         self.wild_sequence = re.findall(r'[@£$]', pattern)
@@ -41,63 +36,82 @@ class SAOLWordFinder(webdriver.Chrome):
         return no
 
     def goto(self, word):
-        self.get("https://svenska.se/tri/f_saol.php?sok=" + word)
+        word = urllib.parse.quote(word)
+        return self.get("tri/f_saol.php?sok=" + word)
 
-    def saol_text(self):
-        return self.find_element_by_class_name("cshow").text
+    def get(self, link):
+        req = urlr.Request("https://svenska.se/" + link, headers={"Referer": "https://svenska.se/"})
+        with urlr.urlopen(req) as resp:
+            html = resp.read().decode("utf-8")
+        return html
 
     def fit(self, lemma):
-        all_forms = lemma.find_elements_by_class_name("bform")
-        # if all_forms == []:
-        #     return None
-        for form in all_forms:
-            form_text = form.text
-            if self.regex_pattern.match(form_text) != None:
-                return form_text
-        return False
-
-    def _saol_lemmas(self):
-        lemmas = self.find_elements_by_class_name("lemma")
-        if not lemmas:
+        match = self.regex_pattern.search(lemma) # TODO: matcha grundform
+        if match == None:
             return None
-        defs = []
-        for lemma in lemmas:
-            word_fit = self.fit(lemma)
-            if word_fit == False:
-                continue
-            elif word_fit == None:
-                try:
-                    word_fit = lemma.find_element_by_class_name("grundform").text
-                except NoSuchElementException:
-                    continue
-            try:
-                found_defs = lemma.find_elements_by_class_name("def")
-            except NoSuchElementException:
-                found_defs = []
-            found_defs_text = []
-            for defi in found_defs:
-                found_defs_text.append(defi.text.replace("\u00AD", ""))
-            defs.append((word_fit, found_defs_text))
-        return defs
-
-    def _saol_digs(self):
-        digs = self.find_elements_by_tag_name("a")
-        for i in range(len(digs)):
-            not_stale_digs = self.find_elements_by_tag_name("a")
-            yield not_stale_digs[i]
-
-    def _click_dig(self, dig):
-        link = dig.get_attribute("onclick")[26:-2]
-        self.get("https://svenska.se" + link)
+        else:
+            return match.group(1)
 
     def search(self):
         self.look_for(self.pattern)
         if self.verbose:
             print("\r                                 ")
 
+    def look_for(self, pattern):
+        search_word = self.from_pattern(pattern)
+        last = self.check(search_word)
+        if last == True:
+            return
+        new_props = self.new_search_array(pattern, last)
+        for prop in new_props:
+            self.look_for(prop)
+
+    def check(self, word):
+        html = self.goto(word)
+        if "inga svar" in html:
+            return True
+        lemmas = html.split('class="lemma"')
+        if len(lemmas) >= 2:
+            self._saol_lemmas(lemmas[1:])
+            return True
+        else:
+            more = False
+            if "..." in html:
+                more = True
+            links = self.find_links.findall(html)
+            for link in links:
+                html = self.get(link)
+                lemmas = html.split('class="lemma"')
+                last_word = self._saol_lemmas(lemmas[1:])
+            if more:
+                return last_word
+            else:
+                return True
+
+    def _saol_lemmas(self, lemmas):
+        
+        defs = []
+        for lemma in lemmas:
+            defs_text = []
+            word_fit = self.fit(lemma)
+            if word_fit == None:
+                continue
+            matches = self.find_def.findall(lemma)
+            for match in matches:
+                meaning = ""
+                for segment in match:
+                    meaning += segment
+                defs_text.append(meaning.replace("\u00AD", ""))
+            defs.append((word_fit, defs_text))
+        self.add_words(defs)
+        if not defs:
+            match = self.find_grundform.search(lemmas[0])
+            return match.group(1)
+        return defs[-1][0]
+
     def compile_regex(self, pattern):
-        pattern = pattern.replace('@',f'([{self.vocals}])').replace('£',f'([{self.letters}])').replace('$',f'([{self.consonants}])')
-        pattern = "^" + pattern + "$"
+        pattern = pattern.replace('@',f'(?:[{self.vocals}])').replace('£',f'(?:[{self.letters}])').replace('$',f'(?:[{self.consonants}])')
+        pattern = 'class="bform"[^<>]*>(' + pattern + ')</span>'
         self.regex_pattern = re.compile(pattern)
 
     def from_pattern(self, pattern):
@@ -157,46 +171,12 @@ class SAOLWordFinder(webdriver.Chrome):
                 progress += self.consonants.find(matches[index]) * self.past_words(self.wild_numbers[index+1:])
         print(f'\r{progress} / {self.no_of_props}', end="")
 
-    def look_for(self, pattern):
-        search_word = self.from_pattern(pattern)
-        last = self.check(search_word)
-        if last == True:
-            return
-        new_props = self.new_search_array(pattern, last)
-        for prop in new_props:
-            self.look_for(prop)
-
     def add_words(self, words):
         for word in words:
             if word not in self.words:
-                self.calculate_progress(word[0])
+                #self.calculate_progress(word[0])
                 self.words.append(word)
 
-    def check(self, word):
-        self.goto(word)
-        text = self.saol_text()
-        if "inga svar" in text:
-            return True
-        lemmas = self._saol_lemmas()
-        if lemmas or lemmas == []:
-            self.add_words(lemmas)
-            return True
-        else:
-            digs = self._saol_digs()
-            lemmas_1 = []
-            for d in digs:
-                self._click_dig(d)
-                lemmas_2 = self._saol_lemmas()
-                if lemmas_1 != lemmas_2:
-                    self.add_words(lemmas_2)
-                lemmas_1 = lemmas_2
-                self.back()
-        if "..." in text and lemmas_2:
-            last = lemmas_2[-1][0]
-            return last
-        else:
-            return True
-        
 def prop(word):
     consonants = "bcdfghjklmnpqrstvwxz"
     vocals = "aeiouyåäö"
@@ -235,7 +215,7 @@ if __name__ == "__main__":
     else:
         print(f"Löser dina korsordsbekymmer.\n")
         
-    wd = SAOLWordFinder(word, verbose=True, headless=True)
+    wd = SAOLWordFinder(word, verbose=True)
     if print_props:
         dont_print = "n"
         if wd.no_of_props >= 1000:
@@ -266,4 +246,3 @@ if __name__ == "__main__":
                     def_string += defs + "; "
                 saol_prop_string += "\n" + saol_prop[0] + ": " + def_string[0:-2]
             print(saol_prop_string) #remove last comma
-        wd.close()
