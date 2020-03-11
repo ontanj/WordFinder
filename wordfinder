@@ -1,12 +1,11 @@
-# -*- coding: utf-8 -*-
+#! /usr/bin/env python3
 
 import sys
 import re
 import urllib.request as urlr
 import urllib
-from html.parser import HTMLParser
 
-class SAOLWordFinder:
+class WordFinder:
 
     def __init__(self, pattern, verbose=False):
         self.pattern = pattern
@@ -170,21 +169,18 @@ class SAOLWordFinder:
                 self.calculate_progress(word[0])
                 self.words.append(word)
 
-def prop(word):
-    consonants = "bcdfghjklmnpqrstvwxz"
-    vocals = "aeiouyåäö"
-    letters = "abcdefghijklmnopqrstuvwxyzåäö"
-    propositions = [""]
-    for letter in word:
-        if letter == '@':
-            propositions = [former + new for former in propositions for new in vocals]
-        elif letter == '$':
-            propositions = [former + new for former in propositions for new in consonants]
-        elif letter == '£':
-            propositions = [former + new for former in propositions for new in letters]
-        else:
-            propositions = [former + letter for former in propositions]
-    return propositions
+    def prop(self):
+        propositions = [""]
+        for letter in self.pattern:
+            if letter == '@':
+                propositions = [former + new for former in propositions for new in self.vocals]
+            elif letter == '$':
+                propositions = [former + new for former in propositions for new in self.consonants]
+            elif letter == '£':
+                propositions = [former + new for former in propositions for new in self.letters]
+            else:
+                propositions = [former + letter for former in propositions]
+        return propositions
 
 if __name__ == "__main__":
     word = None
@@ -207,14 +203,14 @@ if __name__ == "__main__":
     else:
         print(f"Löser dina korsordsbekymmer.\n")
         
-    wd = SAOLWordFinder(word, verbose=True)
+    wd = WordFinder(word, verbose=True)
     if print_props:
         dont_print = "n"
         if wd.no_of_props >= 1000:
             print(f'Det finns {wd.no_of_props} möjligheter.\n')
             dont_print = input("Vill du skippa att skriva ut dem? [Y/n]")
         if dont_print == "n":
-            props = prop(word)
+            props = wd.prop()
             string = f"Följande möjligheter finns:\n"
             for p in props:
                 string += p + ", "
