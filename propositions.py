@@ -46,7 +46,7 @@ class SAOLWordFinder:
         return html
 
     def fit(self, lemma):
-        match = self.regex_pattern.search(lemma) # TODO: matcha grundform
+        match = self.class_pattern.search(lemma) # TODO: matcha grundform
         if match == None:
             return None
         else:
@@ -110,9 +110,10 @@ class SAOLWordFinder:
         return defs[-1][0]
 
     def compile_regex(self, pattern):
-        pattern = pattern.replace('@',f'(?:[{self.vocals}])').replace('£',f'(?:[{self.letters}])').replace('$',f'(?:[{self.consonants}])')
-        pattern = 'class="bform"[^<>]*>(' + pattern + ')</span>'
-        self.regex_pattern = re.compile(pattern)
+        pattern = pattern.replace('@',f'([{self.vocals}])').replace('£',f'([{self.letters}])').replace('$',f'([{self.consonants}])')
+        class_pattern = 'class="bform"[^<>]*>(' + pattern + ')</span>'
+        self.word_pattern = re.compile(pattern)
+        self.class_pattern = re.compile(class_pattern)
 
     def from_pattern(self, pattern):
         return pattern.replace('@','?').replace('£','?').replace('$','?')
@@ -159,8 +160,8 @@ class SAOLWordFinder:
     def calculate_progress(self, current):
         if not self.verbose:
             return
-        matches = self.regex_pattern.findall(current)
-        matches = matches[0]
+        matches = self.word_pattern.fullmatch(current)
+        matches = matches.groups()
         progress = 0
         for index in range(len(matches)):
             if self.wild_sequence[index] == "@":
@@ -174,7 +175,7 @@ class SAOLWordFinder:
     def add_words(self, words):
         for word in words:
             if word not in self.words:
-                #self.calculate_progress(word[0])
+                self.calculate_progress(word[0])
                 self.words.append(word)
 
 def prop(word):
