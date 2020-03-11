@@ -9,19 +9,25 @@ from html.parser import HTMLParser
 class SAOLWordFinder:
 
     def __init__(self, pattern, verbose=False):
-        self.first_finder = re.compile(r'^(\w*)([$|@|£])')
-        self.find_def = re.compile(r'class="def".*?>(.*?)(?:<span.*?>(.*?)</span>(.*?))?</span>', re.S)
-        self.find_links = re.compile(r"onclick=\"return loadDiv\('#saol-1','(/tri/f_saol\.php\?id=.*?)'\)\"><span class=\"dig\">(?: &nbsp|1)")
         self.pattern = pattern
         self.words = []
         self.consonants = "bcdfghjklmnpqrstvwxz"
         self.vocals = "aeiouyåäö"
         self.letters = "abcdefghijklmnopqrstuvwxyzåäö"
+        self.first_finder = re.compile(r'^(\w*?)([$|@|£])')
+        self.find_def = re.compile(r'class="def"[^<>]*>([^<>]*)(?:<span [^<>]*>([^<>]*)</span>([^<>]*))?(?:<span [^<>]*>([^<>]*)</span>([^<>]*))?(?:<span [^<>]*>([^<>]*)</span>([^<>]*))?(?:<span [^<>]*>([^<>]*)</span>([^<>]*))?', re.S)
+        self.find_links = re.compile(r"onclick=\"return loadDiv\('#saol-1','(/tri/f_saol\.php\?id=.*?)'\)\"><span class=\"dig\">(?: &nbsp|1)")
+        self.find_grundform = re.compile(r'<span class="grundform">(.*?)</span>')
         self.compile_regex(pattern)
-        self.no_of_props = self.find_no_of_props(pattern)
+        self.find_no_of_props(pattern)
         self.verbose = verbose
         self.get_wild_numbers()
-        self.find_grundform = re.compile(r'<span class="grundform">(.*?)</span>')
+
+    def compile_regex(self, pattern):
+        pattern = pattern.replace('@',f'([{self.vocals}])').replace('£',f'([{self.letters}])').replace('$',f'([{self.consonants}])')
+        class_pattern = 'class="bform"[^<>]*>(' + pattern + ')</span>'
+        self.word_pattern = re.compile(pattern)
+        self.class_pattern = re.compile(class_pattern)
 
     def find_no_of_props(self, pattern):
         self.wild_sequence = re.findall(r'[@£$]', pattern)
@@ -33,7 +39,18 @@ class SAOLWordFinder:
                 no *= 29
             else:
                 no *= 20
-        return no
+        self.no_of_props = no
+
+    def get_wild_numbers(self):
+        wild_numbers = []
+        for sign in self.wild_sequence:
+            if sign == "@":
+                wild_numbers.append(9)
+            elif sign == "£":
+                wild_numbers.append(29)
+            else:
+                wild_numbers.append(20)
+        self.wild_numbers = wild_numbers
 
     def goto(self, word):
         word = urllib.parse.quote(word)
@@ -53,21 +70,17 @@ class SAOLWordFinder:
             return match.group(1)
 
     def search(self):
-        self.look_for(self.pattern)
+        last = self.check(self.pattern)
+        while last != True:
+            new_props = self.new_search_array(self.pattern, last)
+            for prop in new_props:
+                last = self.check(prop)
         if self.verbose:
             print("\r                                 ")
 
-    def look_for(self, pattern):
+    def check(self, pattern):
         search_word = self.from_pattern(pattern)
-        last = self.check(search_word)
-        if last == True:
-            return
-        new_props = self.new_search_array(pattern, last)
-        for prop in new_props:
-            self.look_for(prop)
-
-    def check(self, word):
-        html = self.goto(word)
+        html = self.goto(search_word)
         if "inga svar" in html:
             return True
         lemmas = html.split('class="lemma"')
@@ -89,7 +102,6 @@ class SAOLWordFinder:
                 return True
 
     def _saol_lemmas(self, lemmas):
-        
         defs = []
         for lemma in lemmas:
             defs_text = []
@@ -109,12 +121,6 @@ class SAOLWordFinder:
             return match.group(1)
         return defs[-1][0]
 
-    def compile_regex(self, pattern):
-        pattern = pattern.replace('@',f'([{self.vocals}])').replace('£',f'([{self.letters}])').replace('$',f'([{self.consonants}])')
-        class_pattern = 'class="bform"[^<>]*>(' + pattern + ')</span>'
-        self.word_pattern = re.compile(pattern)
-        self.class_pattern = re.compile(class_pattern)
-
     def from_pattern(self, pattern):
         return pattern.replace('@','?').replace('£','?').replace('$','?')
 
@@ -129,13 +135,10 @@ class SAOLWordFinder:
             letters = self.letters
         letters_after = letters[letters.index(letter):]
         new_patterns = [pattern[0:pos] + letter + pattern[pos+1:] for letter in letters_after]
-        if letter == "a":
-            extra_patterns = self.new_search_array(new_patterns[0], last)
-            new_patterns = extra_patterns + new_patterns[1:]
         return new_patterns
 
     def find_first(self, pattern, last):
-        match = self.first_finder.search(pattern)
+        match = self.first_finder.match(pattern)
         pos = len(match.group(1))
         sign = match.group(2)
         return pos, sign
@@ -145,17 +148,6 @@ class SAOLWordFinder:
         for n in numbers:
             no *= n
         return no
-
-    def get_wild_numbers(self):
-        wild_numbers = []
-        for sign in self.wild_sequence:
-            if sign == "@":
-                wild_numbers.append(9)
-            elif sign == "£":
-                wild_numbers.append(29)
-            else:
-                wild_numbers.append(20)
-        self.wild_numbers = wild_numbers
 
     def calculate_progress(self, current):
         if not self.verbose:
@@ -195,7 +187,6 @@ def prop(word):
     return propositions
 
 if __name__ == "__main__":
-    headless = True
     word = None
     saol = False
     print_props = True
